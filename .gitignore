@@ -29,6 +29,9 @@ MANIFEST
 .ipynb_checkpoints
 *.ipynb
 
+# do not upload simulation outputs
+sims/*
+
 # custom user files
 jg_*
 cfgs/jg_*

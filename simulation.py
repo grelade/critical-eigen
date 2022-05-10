@@ -17,23 +17,7 @@ sys.path.append(".")
 sys.path.append("../")
 sys.path.append("../../")
 from model import SERModel
-
-
-def determine_unique_postfix(fn) -> str:
-    """
-    Determine the unique postfix for a file or directory in order to avoid overwriting
-    directories created during the run.
-    """
-    if not os.path.exists(fn):
-        return ""
-    path, name = os.path.split(fn)
-    name, ext = os.path.splitext(name)
-    make_fn = lambda i: os.path.join(path, "{}_{}{}".format(name, i, ext))
-    for i in range(1, sys.maxsize):
-        uni_fn = make_fn(i)
-        if not os.path.exists(uni_fn):
-            return "_" + str(i)
-
+from func import determine_unique_postfix
 
 def simulation(
                 n_steps: int,
@@ -104,7 +88,7 @@ if __name__ == '__main__':
     connectome_name = os.path.split(connectome_file)[-1]
     copyfile(connectome_file, os.path.join(run_name, connectome_name))
     # write the config file
-    with open(os.path.join(run_name, 'config_file.ini'), 'w') as config:
+    with open(os.path.join(run_name, 'sim_config.ini'), 'w') as config:
         parser.write(config)
 
     # load connectome:
