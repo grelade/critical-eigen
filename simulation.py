@@ -67,7 +67,12 @@ if __name__ == '__main__':
     t_th = parameters.getint("t_th", 200)
     ri = parameters.getfloat("ri", 0.001)
     rf = parameters.getfloat("rf", 0.2)
-    T = parameters.getfloat("T", 0.05)
+    #T = parameters.getfloat("T", 0.05)
+    
+    T_init = parameters.getfloat("T_init", 0.05)
+    T_final = parameters.getfloat("T_final", 0.05)
+    T_n = parameters.getint("T_n", 1)
+    
     seed = parameters.getint("seed", 124)
     frac_init_active_neurons = parameters.getfloat("frac_init_active_neurons", 0.01)
     connectome_file = parameters.get("connectome_file", 'sample.dat')
@@ -83,10 +88,10 @@ if __name__ == '__main__':
         run_name += postfix
         print("Run name changed: {}".format(run_name))
 
-    # create run directory and copy the connectome
+    # create run directory
     os.makedirs(run_name, exist_ok=False)
-    connectome_name = os.path.split(connectome_file)[-1]
-    copyfile(connectome_file, os.path.join(run_name, connectome_name))
+    connectome_name = os.path.split(connectome_file)[-1]    
+    
     # write the config file
     with open(os.path.join(run_name, 'sim_config.ini'), 'w') as config:
         parser.write(config)
@@ -100,7 +105,9 @@ if __name__ == '__main__':
     # apply flags:
     if connectome_normalization:
         for row in connectome:
-            row /= np.sum(row)
+            s = np.sum(row)
+            if s>0:
+                row /= s
 
     # define size of the network
     Nsize = len(connectome)
@@ -117,32 +124,50 @@ if __name__ == '__main__':
     print("Fraction of initially active neurons: {}".format(frac_init_active_neurons))
     print("Spontaneous activation probability: {}".format(ri))
     print("Relaxation probability: {}".format(rf))
-    print("Value of the threshold (temperature): {}".format(T))
+    # print("Value of the threshold (temperature): {}".format(T))
+    print(f"Thresholds (temperatures): np.linspace({T_init},{T_final},{T_n})")
     print("Connectome file: {}".format(connectome_name))
     print("Normalization of the connectome: {}".format(connectome_normalization))
     print("Rocha's ri and rf: {}".format(r_rocha))
 
     # only now enter run's directory
     os.chdir(run_name)
-
+    
     # main simulation goes here:
     start_time = timeit.default_timer()
-    activation_matrix = simulation(n_steps=t_max,
-                                   n_therm=t_th,
-                                   ri=ri,
-                                   rf=rf,
-                                   prop_active=frac_init_active_neurons,
-                                   T=T,
-                                   conn_matrix=connectome,
-                                   seed=seed)
+    
+    am_tab = None
+    Ts = np.linspace(T_init,T_final,T_n)
+    for T in Ts:
+        print(f"T = {T}")
+        activation_matrix = simulation(n_steps=t_max,
+                                       n_therm=t_th,
+                                       ri=ri,
+                                       rf=rf,
+                                       prop_active=frac_init_active_neurons,
+                                       T=T,
+                                       conn_matrix=connectome,
+                                        seed=seed)
+        activation_matrix = np.expand_dims(activation_matrix,axis=0)
+        
+        am_tab = activation_matrix if am_tab is None else np.concatenate((am_tab,activation_matrix),axis=0)
 
     # truncate the extension of the connectome filename
-    connectome_name_wo_ext = os.path.splitext(connectome_name)[0]
-    output_filename = 'activation_matrix_{}'.format(connectome_name_wo_ext)
-
+    # connectome_name_wo_ext = os.path.splitext(connectome_name)[0]
+    # output_filename = 'activation_matrix_{}'.format(connectome_name_wo_ext)
+    
+        
     # save the activation matrix
     #np.savetxt(output_filename, activation_matrix, delimiter=",")
-    np.save(output_filename, activation_matrix)
+    #np.save(output_filename, activation_matrix)
+    output_filename = 'output'
+    np.savez_compressed(output_filename, activation_matrix = am_tab, Ts = Ts)
+    
+    # save the connectome
+    # copyfile(connectome_file, os.path.join(run_name, connectome_name))
+    connectome_name = 'connection_matrix.dat'
+    np.savetxt(connectome_name,connectome)
+    
     end_time = time.asctime()
     final_time = timeit.default_timer()
     print()

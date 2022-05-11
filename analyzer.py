@@ -20,7 +20,12 @@ def standardize(X,axis=-1):
     return (X - means)/stds
 
 def calc_cov(X):
+    N,T = X.shape
     return 1/T * X @ X.T
+
+def calc_eigenvalues(cov):
+    L,U = np.linalg.eigh(cov)
+    return L
 
 def cluster_sizes(adj,mask):
     adj0 = adj[mask][::,mask]
@@ -66,7 +71,7 @@ if __name__ == '__main__':
     # T = parameters.getfloat("T", 0.05)
     # seed = parameters.getint("seed", 124)
     # frac_init_active_neurons = parameters.getfloat("frac_init_active_neurons", 0.01)
-    sim_file = parameters.get("sim_file", 'simulation.npy')
+    sim_file = parameters.get("sim_file", 'simulation.npz')
     connectome_file = parameters.get("connectome_file", 'sample.dat')
     run_name = parameters.get("run_name", 'test_analysis')
 
@@ -144,7 +149,7 @@ if __name__ == '__main__':
         print('Finding eigenvalues...')
         if cov is None:
             cov = calc_cov(X)
-        evs,_ = np.linalg.eigh(cov)
+        evs = calc_eigenvalues(cov)
         
         evs_path = 'eigenvalues.npy'
         np.save(evs_path,evs)
