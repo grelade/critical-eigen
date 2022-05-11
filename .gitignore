@@ -29,6 +29,13 @@ MANIFEST
 .ipynb_checkpoints
 *.ipynb
 
+# PyCharm settings folder
+.idea/
+
 # custom user files
 jg_*
 cfgs/jg_*
+jj_*
+cfgs/jj_*
+
+
