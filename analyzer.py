@@ -47,6 +47,33 @@ def find_clusters(X,adj,n_clusters=10):
         
     return clusters
 
+def batch_cov(Xs):
+    covs = None
+    for X in Xs:
+        cov = calc_cov(X)
+        cov = np.expand_dims(cov,axis=0)
+        covs = cov if covs is None else np.concatenate((covs,cov),axis=0)
+        
+    return covs
+
+def batch_eigenvalues(covs):
+    Ls = None
+    for cov in covs:
+        L = calc_eigenvalues(cov)
+        L = np.expand_dims(L,axis=0)
+        Ls = L if Ls is None else np.concatenate((Ls,L),axis=0)
+        
+    return Ls
+
+def batch_clusters(Xs,adj,n_clusters=10):
+    clusters = None
+    for X in Xs:
+        cl = find_clusters(X,adj,n_clusters).mean(axis=0)
+        cl = np.expand_dims(cl,axis=0)
+        clusters = cl if clusters is None else np.concatenate((clusters,cl),axis=0)
+        
+    return clusters
+
 
 if __name__ == '__main__':
     # Print initial message:
@@ -71,9 +98,8 @@ if __name__ == '__main__':
     # T = parameters.getfloat("T", 0.05)
     # seed = parameters.getint("seed", 124)
     # frac_init_active_neurons = parameters.getfloat("frac_init_active_neurons", 0.01)
-    sim_file = parameters.get("sim_file", 'simulation.npz')
-    connectome_file = parameters.get("connectome_file", 'sample.dat')
-    run_name = parameters.get("run_name", 'test_analysis')
+    sim_dir = parameters.get("sim_dir", 'sims/test_sim')
+    an_dir = parameters.get("an_dir", 'analyses/test_an')
 
     flags = parser['Flags']
     standardize_data = flags.getboolean("standardize_data", False)
@@ -82,17 +108,21 @@ if __name__ == '__main__':
     eigenvalues = flags.getboolean("eigenvalues", True)
 
     # create unique directory
-    postfix = determine_unique_postfix(run_name)
+    postfix = determine_unique_postfix(an_dir)
     if postfix != '':
-        run_name += postfix
-        print("Run name changed: {}".format(run_name))
+        an_dir += postfix
+        print("Run name changed: {}".format(an_dir))
 
     # create run directory and copy the connectome
-    os.makedirs(run_name, exist_ok=False)
-    connectome_name = os.path.split(connectome_file)[-1]
+    os.makedirs(an_dir, exist_ok=False)
+    
+    connectome_file = os.path.join(sim_dir,'connection_matrix.dat')
+    sim_file = os.path.join(sim_dir,'output.npz')
+    connectome_name = os.path.split(connectome_file)[-1]    
+    
     # copyfile(connectome_file, os.path.join(run_name, connectome_name))
     # write the config file
-    with open(os.path.join(run_name, 'an_config.ini'), 'w') as config:
+    with open(os.path.join(an_dir, 'an_config.ini'), 'w') as config:
         parser.write(config)
 
     # load connectome_file:
@@ -103,15 +133,16 @@ if __name__ == '__main__':
         
     # load sim_file:
     try:
-        X = np.load(sim_file)
+        data = np.load(sim_file)
+        Xs = data['activation_matrix']
+        Ts = data['Ts']
     except:
         sys.exit("Simulation file {} not found".format(sim_file))
 
     # define size of the network
-    N,T = X.shape
+    _,N,_ = Xs.shape
     Nconn = len(connectome)
     assert Nconn == N, f'Connectome and simulation matrices have incompatible sizes {N} != {Nconn}'
-
 
     # print the parameters:
     # print("Parameters read from the file:")
@@ -127,40 +158,42 @@ if __name__ == '__main__':
     # print("Rocha's ri and rf: {}".format(r_rocha))
 
     # only now enter run's directory
-    os.chdir(run_name)
+    os.chdir(an_dir)
 
     # main simulation goes here:
     start_time = timeit.default_timer()
     
     # modify refractory cells
-    X[X==2] = new_refractory_value
-    
-    if standardize_data:
-        X = standardize(X)
+    for X in Xs:
+        X[X==2] = new_refractory_value
+        if standardize_data:
+            X = standardize(X)
 
+    output_data = dict()
+    output_data['Ts'] = Ts
+    
+    covs = None
     if covariance:
         print('Calculating covariance...')
-        cov = calc_cov(X)
         
-        cov_path = 'covariance.npy'
-        np.save(cov_path,cov)
+        covs = batch_cov(Xs)
+        output_data['cov'] = covs
         
     if eigenvalues:
         print('Finding eigenvalues...')
-        if cov is None:
-            cov = calc_cov(X)
-        evs = calc_eigenvalues(cov)
         
-        evs_path = 'eigenvalues.npy'
-        np.save(evs_path,evs)
+        if covs is None:
+            covs = batch_cov(Xs)
+        evs = batch_eigenvalues(covs)
+        output_data['cov_evals'] = evs
         
     if clusters:
         print(f'Finding {n_clusters} largest clusters...')
-        cs = find_clusters(X,connectome,n_clusters)
         
-        cs_path = 'clusters.npy'
-        np.save(cs_path,cs)
+        cs = batch_clusters(Xs,connectome,n_clusters)
+        output_data['clusters'] = cs
 
+    np.savez_compressed('output.npz',**output_data)
     # truncate the extension of the connectome filename
     # connectome_name_wo_ext = os.path.splitext(connectome_name)[0]
     # output_filename = 'activation_matrix_{}'.format(connectome_name_wo_ext)
@@ -168,7 +201,6 @@ if __name__ == '__main__':
     # save the activation matrix
     #np.savetxt(output_filename, activation_matrix, delimiter=",")
     # np.save(output_filename, activation_matrix)
-    
     
     end_time = time.asctime()
     final_time = timeit.default_timer()

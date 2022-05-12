@@ -160,7 +160,7 @@ if __name__ == '__main__':
     # save the activation matrix
     #np.savetxt(output_filename, activation_matrix, delimiter=",")
     #np.save(output_filename, activation_matrix)
-    output_filename = 'output'
+    output_filename = 'output.npz'
     np.savez_compressed(output_filename, activation_matrix = am_tab, Ts = Ts)
     
     # save the connectome
