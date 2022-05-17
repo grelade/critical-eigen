@@ -106,12 +106,16 @@ if __name__ == '__main__':
     covariance = flags.getboolean("covariance", True)
     clusters = flags.getboolean("clusters", True)
     eigenvalues = flags.getboolean("eigenvalues", True)
+    skip_calculated = flags.getboolean("skip_calculated", True)
 
     # create unique directory
     postfix = determine_unique_postfix(an_dir)
     if postfix != '':
-        an_dir += postfix
-        print("Run name changed: {}".format(an_dir))
+        if not skip_calculated:
+            an_dir += postfix
+            print("Run name changed: {}".format(an_dir))
+        else:
+            print("Found a run, skipping: {}".format(an_dir))
 
     # create run directory and copy the connectome
     os.makedirs(an_dir, exist_ok=False)

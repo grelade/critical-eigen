@@ -81,12 +81,16 @@ if __name__ == '__main__':
     flags = parser['Flags']
     r_rocha = flags.getboolean("r_rocha", False)
     connectome_normalization = flags.getboolean("connectome_normalization", False)
-
+    skip_calculated = flags.getboolean("skip_calculated", True)
+    
     # create unique directory
     postfix = determine_unique_postfix(run_name)
     if postfix != '':
-        run_name += postfix
-        print("Run name changed: {}".format(run_name))
+        if not skip_calculated:
+            run_name += postfix
+            print("Run name changed: {}".format(run_name))
+        else:
+            print("Found a run, skipping: {}".format(run_name))
 
     # create run directory
     os.makedirs(run_name, exist_ok=False)
@@ -129,7 +133,7 @@ if __name__ == '__main__':
     print("Connectome file: {}".format(connectome_name))
     print("Normalization of the connectome: {}".format(connectome_normalization))
     print("Rocha's ri and rf: {}".format(r_rocha))
-
+    print(f"Skip finished calculation: {skip_calculated}")
     # only now enter run's directory
     os.chdir(run_name)
     
