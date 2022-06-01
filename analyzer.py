@@ -2,6 +2,7 @@
 
 import networkx as nx
 import numpy as np
+import pandas as pd
 import sys
 import os
 from shutil import copyfile
@@ -47,6 +48,11 @@ def find_clusters(X,adj,n_clusters=10):
         
     return clusters
 
+def autocorr_one(X):
+    series = pd.Series(X.sum(axis=0))
+    # returns array for possibility of concatenation for batch_autocorr_one function
+    return np.array([series.autocorr(lag=1)])
+
 def batch_cov(Xs):
     covs = None
     for X in Xs:
@@ -74,6 +80,13 @@ def batch_clusters(Xs,adj,n_clusters=10):
         
     return clusters
 
+def batch_autocorr_one(Xs):
+    ac_one_tab = None
+    for X in Xs:
+        ac_one = autocorr_one(X)
+        ac_one_tab = ac_one if ac_one_tab is None else np.concatenate((ac_one_tab, ac_one), axis=0)
+
+    return ac_one_tab
 
 if __name__ == '__main__':
     # Print initial message:
@@ -106,6 +119,7 @@ if __name__ == '__main__':
     covariance = flags.getboolean("covariance", True)
     clusters = flags.getboolean("clusters", True)
     eigenvalues = flags.getboolean("eigenvalues", True)
+    autocorrelation = flags.getboolean("autocorrelation", True)
     skip_calculated = flags.getboolean("skip_calculated", True)
 
     # create unique directory
@@ -116,6 +130,7 @@ if __name__ == '__main__':
             print("Run name changed: {}".format(an_dir))
         else:
             print("Found a run, skipping: {}".format(an_dir))
+            sys.exit()
 
     # create run directory and copy the connectome
     os.makedirs(an_dir, exist_ok=False)
@@ -173,31 +188,51 @@ if __name__ == '__main__':
         if standardize_data:
             X = standardize(X)
 
-    output_data = dict()
-    output_data['Ts'] = Ts
+    # output_data = dict()
+    # output_data['Ts'] = Ts
     
     covs = None
     if covariance:
         print('Calculating covariance...')
         
         covs = batch_cov(Xs)
-        output_data['cov'] = covs
+        covs_data = dict()
+        covs_data['Ts'] = Ts
+        covs_data['cov'] = covs
+        # output_data['cov'] = covs
+
+        np.savez_compressed("covs_data.npz", **covs_data)
         
     if eigenvalues:
         print('Finding eigenvalues...')
         
         if covs is None:
             covs = batch_cov(Xs)
-        evs = batch_eigenvalues(covs)
-        output_data['cov_evals'] = evs
+        evs_data = dict()
+        evs_data['Ts'] = Ts
+        # evs = batch_eigenvalues(covs)
+        evs_data['evs'] = batch_eigenvalues(covs)
+        # output_data['cov_evals'] = evs
+
+        np.savez_compressed("evs_data.npz", **evs_data)
         
     if clusters:
         print(f'Finding {n_clusters} largest clusters...')
-        
-        cs = batch_clusters(Xs,connectome,n_clusters)
-        output_data['clusters'] = cs
+        clusters_data = dict()
+        clusters_data['Ts'] = Ts
+        clusters_data['clusters'] = batch_clusters(Xs,connectome,n_clusters)
+        # cs = batch_clusters(Xs,connectome,n_clusters)
+        # output_data['clusters'] = cs
+        np.savez_compressed("clusters_data.npz", **clusters_data)
 
-    np.savez_compressed('output.npz',**output_data)
+    if autocorrelation:
+        print("Calculating autocorrelations (at lag=1)...")
+        ac_one_data = dict()
+        ac_one_data['Ts'] = Ts
+        ac_one_data['ac_one'] = batch_autocorr_one(Xs)
+        np.savez_compressed("ac_one_data.npz", **ac_one_data)
+
+    # np.savez_compressed('output.npz',**output_data)
     # truncate the extension of the connectome filename
     # connectome_name_wo_ext = os.path.splitext(connectome_name)[0]
     # output_filename = 'activation_matrix_{}'.format(connectome_name_wo_ext)

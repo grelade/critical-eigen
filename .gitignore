@@ -37,5 +37,7 @@ jg_*
 cfgs/jg_*
 jj_*
 cfgs/jj_*
+sims/*
+analyses/*
 
-
+.DS_Store
