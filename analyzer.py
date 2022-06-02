@@ -88,6 +88,16 @@ def batch_autocorr_one(Xs):
 
     return ac_one_tab
 
+def batch_mean_corr(Xs):
+    mean_corr_tab = None
+    for X in Xs:
+        X = standardize(X)
+        mean_corr = calc_cov(X).mean()
+        mean_corr = np.array([mean_corr])
+        mean_corr_tab = mean_corr if mean_corr_tab is None else np.concatenate((mean_corr_tab, mean_corr), axis=0)
+
+    return mean_corr_tab
+
 if __name__ == '__main__':
     # Print initial message:
     initial_time = time.asctime()
@@ -120,6 +130,7 @@ if __name__ == '__main__':
     clusters = flags.getboolean("clusters", True)
     eigenvalues = flags.getboolean("eigenvalues", True)
     autocorrelation = flags.getboolean("autocorrelation", True)
+    mean_correlation = flags.getboolean("mean_correlation", True)
     skip_calculated = flags.getboolean("skip_calculated", True)
 
     # create unique directory
@@ -231,6 +242,14 @@ if __name__ == '__main__':
         ac_one_data['Ts'] = Ts
         ac_one_data['ac_one'] = batch_autocorr_one(Xs)
         np.savez_compressed("ac_one_data.npz", **ac_one_data)
+
+    if mean_correlation:
+        print("Caluclating average correlation ...")
+        mean_corr_data = dict()
+        mean_corr_data["Ts"] = Ts
+        mean_corr_data["mean_correlation"] = batch_mean_corr(Xs)
+        np.savez_compressed("mean_correlation.npz", **mean_corr_data)
+
 
     # np.savez_compressed('output.npz',**output_data)
     # truncate the extension of the connectome filename
