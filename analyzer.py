@@ -9,8 +9,10 @@ import time
 import configparser
 import getpass
 import timeit
+from tqdm import tqdm
 
 from func import determine_unique_postfix
+import eigen_obs
 
 def standardize(X,axis=-1):
     stds = X.std(axis=axis,keepdims=True)
@@ -47,9 +49,31 @@ def find_clusters(X,adj,n_clusters=10):
         
     return clusters
 
+def find_nnsd(evals,unfold_model=None):
+    nnsd = eigen_obs.NNSpacingDistribution(evals,ransac_tries=20,poly_degree=19,n_outliers=60)
+    if unfold_model:
+        nnsd._load_unfolding(unfold_model)
+    else:
+        nnsd.unfold()
+    spacings = nnsd.spacings()
+    
+    return spacings, nnsd
+
+def find_nv(evals,unfold_model=None):
+    nv_model = eigen_obs.NumberVariance(evals,ransac_tries=20,poly_degree=19,n_outliers=60)
+    if unfold_model:
+        nv_model._load_unfolding(unfold_model)
+    else:
+        nv_model.unfold()
+        
+    L = np.linspace(0.1,5,50)
+    nvs_mean,nvs_std = nv_model.calc_nv(L,n=20000,eps=0)  
+    
+    return L, nvs_mean, nv_model
+    
 def batch_cov(Xs):
     covs = None
-    for X in Xs:
+    for X in tqdm(Xs):
         cov = calc_cov(X)
         cov = np.expand_dims(cov,axis=0)
         covs = cov if covs is None else np.concatenate((covs,cov),axis=0)
@@ -58,7 +82,7 @@ def batch_cov(Xs):
 
 def batch_eigenvalues(covs):
     Ls = None
-    for cov in covs:
+    for cov in tqdm(covs):
         L = calc_eigenvalues(cov)
         L = np.expand_dims(L,axis=0)
         Ls = L if Ls is None else np.concatenate((Ls,L),axis=0)
@@ -67,13 +91,33 @@ def batch_eigenvalues(covs):
 
 def batch_clusters(Xs,adj,n_clusters=10):
     clusters = None
-    for X in Xs:
+    for X in tqdm(Xs):
         cl = find_clusters(X,adj,n_clusters).mean(axis=0)
         cl = np.expand_dims(cl,axis=0)
         clusters = cl if clusters is None else np.concatenate((clusters,cl),axis=0)
         
     return clusters
 
+def batch_nnsd_nv(evalss):
+    
+    nnsds = None
+    nv_Ls = None
+    nvs = None
+    
+    for evals in tqdm(evalss):
+        
+        nnsd,model = find_nnsd(evals)
+        nv_L, nv, _ = find_nv(evals,unfold_model=model)
+        
+        nnsd = np.expand_dims(nnsd,axis=0)
+        nv_L = np.expand_dims(nv_L,axis=0)
+        nv = np.expand_dims(nv,axis=0)
+        
+        nnsds = nnsd if nnsds is None else np.concatenate((nnsds,nnsd),axis=0)
+        nv_Ls = nv_L if nv_Ls is None else np.concatenate((nv_Ls,nv_L),axis=0)
+        nvs = nv if nvs is None else np.concatenate((nvs,nv),axis=0)
+        
+    return nnsds, nv_Ls, nvs
 
 if __name__ == '__main__':
     # Print initial message:
@@ -86,7 +130,7 @@ if __name__ == '__main__':
 
     # Get the file with parameters and read them:
     config_file = sys.argv[1]
-    print("Configuration file: {}\n".format(config_file))
+    print("Configuration file: {}".format(config_file))
     parser = configparser.ConfigParser()
     parser.read(config_file)
 
@@ -100,13 +144,17 @@ if __name__ == '__main__':
     # frac_init_active_neurons = parameters.getfloat("frac_init_active_neurons", 0.01)
     sim_dir = parameters.get("sim_dir", 'sims/test_sim')
     an_dir = parameters.get("an_dir", 'analyses/test_an')
-
+    
+    print("Simulation directory: {}".format(sim_dir))
+    print("Analysis directory: {}\n".format(an_dir))
+    
     flags = parser['Flags']
     standardize_data = flags.getboolean("standardize_data", False)
     covariance = flags.getboolean("covariance", True)
     clusters = flags.getboolean("clusters", True)
     eigenvalues = flags.getboolean("eigenvalues", True)
     skip_calculated = flags.getboolean("skip_calculated", True)
+    nnsd_nv = flags.getboolean("nnsd_nv", True)
 
     # create unique directory
     postfix = determine_unique_postfix(an_dir)
@@ -177,9 +225,10 @@ if __name__ == '__main__':
     output_data['Ts'] = Ts
     
     covs = None
+    evs = None
     if covariance:
         print('Calculating covariance...')
-        
+
         covs = batch_cov(Xs)
         output_data['cov'] = covs
         
@@ -197,7 +246,23 @@ if __name__ == '__main__':
         cs = batch_clusters(Xs,connectome,n_clusters)
         output_data['clusters'] = cs
 
+    if nnsd_nv:
+        print(f'Finding Nearest Neighbors Spacings / Number Variance...')
+        if evs is None:
+            if covs is None:
+                covs = batch_cov(Xs)
+            evs = batch_eigenvalues(covs)
+            
+        nnsds, nv_Ls, nvs = batch_nnsd_nv(evs)
+        output_data['nnsd'] = nnsds
+        output_data['nv_L'] = nv_Ls
+        output_data['nv'] = nvs
+    
+    for k,v in output_data.items():
+        np.savez_compressed(f'{k}.npz',**{k:v})
+        
     np.savez_compressed('output.npz',**output_data)
+    
     # truncate the extension of the connectome filename
     # connectome_name_wo_ext = os.path.splitext(connectome_name)[0]
     # output_filename = 'activation_matrix_{}'.format(connectome_name_wo_ext)
