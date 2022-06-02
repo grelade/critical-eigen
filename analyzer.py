@@ -2,6 +2,7 @@
 
 import networkx as nx
 import numpy as np
+import pandas as pd
 import sys
 import os
 from shutil import copyfile
@@ -49,6 +50,11 @@ def find_clusters(X,adj,n_clusters=10):
         
     return clusters
 
+def autocorr_one(X):
+    series = pd.Series(X.sum(axis=0))
+    # returns array for possibility of concatenation for batch_autocorr_one function
+    return np.array([series.autocorr(lag=1)])
+
 def find_nnsd(evals,unfold_model=None):
     nnsd = eigen_obs.NNSpacingDistribution(evals,ransac_tries=20,poly_degree=19,n_outliers=60)
     if unfold_model:
@@ -70,7 +76,7 @@ def find_nv(evals,unfold_model=None):
     nvs_mean,nvs_std = nv_model.calc_nv(L,n=20000,eps=0)  
     
     return L, nvs_mean, nv_model
-    
+
 def batch_cov(Xs):
     covs = None
     for X in tqdm(Xs):
@@ -97,6 +103,14 @@ def batch_clusters(Xs,adj,n_clusters=10):
         clusters = cl if clusters is None else np.concatenate((clusters,cl),axis=0)
         
     return clusters
+
+def batch_autocorr_one(Xs):
+    ac_one_tab = None
+    for X in tqdm(Xs):
+        ac_one = autocorr_one(X)
+        ac_one_tab = ac_one if ac_one_tab is None else np.concatenate((ac_one_tab, ac_one), axis=0)
+
+    return ac_one_tab
 
 def batch_nnsd_nv(evalss):
     
@@ -153,8 +167,10 @@ if __name__ == '__main__':
     covariance = flags.getboolean("covariance", True)
     clusters = flags.getboolean("clusters", True)
     eigenvalues = flags.getboolean("eigenvalues", True)
-    skip_calculated = flags.getboolean("skip_calculated", True)
+    autocorrelation = flags.getboolean("autocorrelation", True)
     nnsd_nv = flags.getboolean("nnsd_nv", True)
+    skip_calculated = flags.getboolean("skip_calculated", True)
+    
 
     # create unique directory
     postfix = determine_unique_postfix(an_dir)
@@ -164,6 +180,7 @@ if __name__ == '__main__':
             print("Run name changed: {}".format(an_dir))
         else:
             print("Found a run, skipping: {}".format(an_dir))
+            sys.exit()
 
     # create run directory and copy the connectome
     os.makedirs(an_dir, exist_ok=False)
@@ -221,48 +238,72 @@ if __name__ == '__main__':
         if standardize_data:
             X = standardize(X)
 
-    output_data = dict()
-    output_data['Ts'] = Ts
-    
     covs = None
     evs = None
     if covariance:
         print('Calculating covariance...')
 
         covs = batch_cov(Xs)
-        output_data['cov'] = covs
+        covs_data = dict()
+        covs_data['Ts'] = Ts
+        covs_data['cov'] = covs
+
+        np.savez_compressed("covs_data.npz", **covs_data)
         
     if eigenvalues:
         print('Finding eigenvalues...')
         
         if covs is None:
             covs = batch_cov(Xs)
+        evs_data = dict()
+        evs_data['Ts'] = Ts
         evs = batch_eigenvalues(covs)
-        output_data['cov_evals'] = evs
+        evs_data['evs'] = evs
+
+        np.savez_compressed("evs_data.npz", **evs_data)
         
     if clusters:
         print(f'Finding {n_clusters} largest clusters...')
         
         cs = batch_clusters(Xs,connectome,n_clusters)
         output_data['clusters'] = cs
+        clusters_data = dict()
+        clusters_data['Ts'] = Ts
+        clusters_data['clusters'] = batch_clusters(Xs,connectome,n_clusters)
+        # cs = batch_clusters(Xs,connectome,n_clusters)
+        # output_data['clusters'] = cs
+        np.savez_compressed("clusters_data.npz", **clusters_data)
+
+    if autocorrelation:
+        print("Calculating autocorrelations (at lag=1)...")
+        ac_one_data = dict()
+        ac_one_data['Ts'] = Ts
+        ac_one_data['ac_one'] = batch_autocorr_one(Xs)
+        np.savez_compressed("ac_one_data.npz", **ac_one_data)
 
     if nnsd_nv:
         print(f'Finding Nearest Neighbors Spacings / Number Variance...')
+        nnsd_data = dict()
+        nv_data = dict()
+        
         if evs is None:
             if covs is None:
                 covs = batch_cov(Xs)
             evs = batch_eigenvalues(covs)
             
         nnsds, nv_Ls, nvs = batch_nnsd_nv(evs)
-        output_data['nnsd'] = nnsds
-        output_data['nv_L'] = nv_Ls
-        output_data['nv'] = nvs
-    
-    for k,v in output_data.items():
-        np.savez_compressed(f'{k}.npz',**{k:v})
         
-    np.savez_compressed('output.npz',**output_data)
-    
+        nnsd_data['Ts'] = Ts
+        nnsd_data['nnsd'] = nnsds
+        
+        nv_data['Ls'] = nv_Ls
+        nv_data['nv'] = nvs
+
+        np.savez_compressed('nnsd_data.npz',**nnsd_data)
+        np.savez_compressed('nv_data.npz',**nv_data)
+        
+       
+    # np.savez_compressed('output.npz',**output_data)
     # truncate the extension of the connectome filename
     # connectome_name_wo_ext = os.path.splitext(connectome_name)[0]
     # output_filename = 'activation_matrix_{}'.format(connectome_name_wo_ext)
