@@ -62,11 +62,12 @@ class monopoly(BaseEstimator):
 
 class RANSAC:
     '''
-    RANSAC implementation from wiki
+    RANSAC implementation from wiki; used for outlier-robust curve fit using monopoly
     '''
-    def __init__(self, n=10, k=100, t=0.05, d=10, model=None, loss=None, metric=None):
+    def __init__(self, n=10, k0=5, kmax=100, t=0.05, d=10, model=None, loss=None, metric=None):
         self.n = n              # `n`: Minimum number of data points to estimate parameters
-        self.k = k              # `k`: Maximum iterations allowed
+        self.kmax = kmax              # `kmax`: Maximum iterations allowed
+        self.k0 = k0            # 'k0': Maximum number of improvements
         self.t = t              # `t`: Threshold value to determine if points are fit well
         self.d = d              # `d`: Number of close data points required to assert model fits well
         self.model = model      # `model`: class implementing `fit` and `predict`
@@ -77,8 +78,8 @@ class RANSAC:
         self.best_inliers = None
         
     def fit(self, X, y):
-
-        for kk in range(self.k):
+        k0 = 0
+        for kk in range(self.kmax):
             # print(kk)
             # print(self.best_error)
             ids = np.random.default_rng().permutation(X.shape[0])
@@ -105,6 +106,11 @@ class RANSAC:
                     self.best_error = this_error
                     self.best_fit = maybe_model
                     self.best_inliers = inlier_points
+                    k0+=1
+                    
+            if k0==self.k0:
+                # print(kk,k0)
+                break
 
         if self.best_error == np.inf:
             print('RANSAC failed')
@@ -132,35 +138,51 @@ def goe(n):
     return m
 
 
-class Observable:
+class RMTStatistic:
     
     '''
-    Base function
+    Class implementing both Nearest-Neighbor Spacing Distribution and Number Variance statistics
     '''
-    def __init__(self,evals , ransac_tries=10 , poly_degree=19 , n_outliers = 60, poly_alg = 'Full', mode = 'monopoly'):
-        self.evals = evals
+    def __init__(self,
+                 evals,
+                 ransac_maxiter = 100,
+                 ransac_maximprov = 2,
+                 poly_degree = 19,
+                 n_outliers = 60,
+                 poly_alg = 'Full',
+                 fit_mode = 'monopoly'):
+        
+        self.evals = np.sort(evals)
         self.unfolded_evals = None
-        self.ixs = np.arange(len(evals))
+        
+        self.ixs = np.arange(len(self.evals))
+        
+        # monopoly parameters
         self.poly_degree = poly_degree
-        self.n_outliers = n_outliers
         self.poly_alg = poly_alg
-        self.ransac_tries = ransac_tries
-        self.mode = mode
-        self.av_density = None
+        
+        # ransac parameters
+        self.n_outliers = n_outliers
+        self.ransac_maxiter = ransac_maxiter
+        self.ransac_maximprov = ransac_maximprov
+        
+        self.fit_mode = fit_mode
+        self.model = None
         
     def unfold(self):
-        if self.mode == 'monopoly':
+        if self.fit_mode == 'monopoly':
             model = monopoly(degree=self.poly_degree,
                              algorithm=self.poly_alg)
-            self.av_density = RANSAC(model=model,
+            self.model = RANSAC(model=model,
                                      n=len(self.evals)-self.n_outliers,
-                                     k=self.ransac_tries,
+                                     k0 = self.ransac_maximprov,
+                                     kmax=self.ransac_maxiter,
                                      loss=square_error_loss,
                                      metric=mean_square_error)
-            _ = self.av_density.fit(self.evals,self.ixs)
-            self.unfolded_evals = self.av_density.predict(self.evals)
+            _ = self.model.fit(self.evals,self.ixs)
+            self.unfolded_evals = self.model.predict(self.evals)
             
-        elif self.mode == 'exact_goe':
+        elif self.fit_mode == 'exact_goe':
             self.unfolded_evals = self._goe_cdf(self.evals,n=len(self.evals))
             
         self._check_monotonicity()
@@ -177,26 +199,27 @@ class Observable:
         if (np.diff(self.unfolded_evals)<0).any():
             print('warning, unfolding not monotonic!')
             
-    def _load_unfolding(self,obs):
-        self.evals = obs.evals
-        self.unfolded_evals = obs.unfolded_evals
-        self.ixs = obs.ixs
-        self.av_density = obs.av_density
+#     def _load_unfolding(self,obs):
+#         self.evals = obs.evals
+#         self.unfolded_evals = obs.unfolded_evals
+#         self.ixs = obs.ixs
+#         self.av_density = obs.av_density
         
     def _goe_cdf(self,x,n):
         R = 2*np.sqrt(n)
         return n*(1/2 + x*np.sqrt(R**2-x**2)/(np.pi*R**2) + np.arcsin(x/R)/np.pi)
     
-class NNSpacingDistribution(Observable):
-    '''
-    Nearest-Neighbor Spacing Distribution
-    '''
-    def __init__(self,evals,**kwargs):
-        super().__init__(evals,**kwargs)
-        
-    def spacings(self):
+    
+    # Nearest Neighor Spacing
+    
+    def spacings(self,trim_outliers=False):
         self._unfold_warning()
-        return np.diff(self.unfolded_evals)
+        spacings = np.diff(self.unfolded_evals)
+        if trim_outliers:
+            mask = spacings<5
+            return spacings[mask]
+        else:
+            return spacings
     
     def _prob_brody(self,s,q):
         cq = math.gamma(1/(q+1))**(q+1)/(q+1)
@@ -208,32 +231,16 @@ class NNSpacingDistribution(Observable):
     def nnsd_poisson(self,s):
         return self._prob_brody(s,0)
     
-class NumberVariance(Observable):
-    '''
-    Number Variance
-    '''
-    def __init__(self,evals,**kwargs):
-        super().__init__(evals,**kwargs)
-  
+    def nnsd_picketfence(self,s):
+        return np.ones_like(s)
+    
+    # Number Variance
+    
     def n_levels(self,xs,L):
         self._unfold_warning()
         return self.unfolded_evals_cdf(xs+L/2) - self.unfolded_evals_cdf(xs-L/2)
-
-#     def calc_nv(self,L,n=10000):
-#         self._unfold_warning()
-#         minn = 1*self.unfolded_evals[0]
-#         maxx = 1*self.unfolded_evals[-1]
-        
-#         w = 0
-#         for i in range(n):
-
-#             xs = minn + (maxx-minn)*np.random.rand()
-#             # w += (self.n_levels(xs,L)-L)**2
-#             w += (self.n_levels(xs,L)-L)**2
-
-#         return w/n 
     
-    def calc_nv(self,L,n=20000,eps=0):
+    def calc_nv(self,L,n=10000,eps=0):
         
         self._unfold_warning()
         # minn = (1+eps)*(self.unfolded_evals[0] + L/2)
@@ -243,36 +250,48 @@ class NumberVariance(Observable):
         
         w1 = 0
         w2 = 0
-        w3 = 0
-        w4 = 0
+        # w3 = 0
+        # w4 = 0
 
         for i in range(n):
             xs = minn + (maxx-minn)*np.random.rand()
             w1 += self.n_levels(xs,L)
-            
-        for i in range(n):
-            xs = minn + (maxx-minn)*np.random.rand()
             w2 += self.n_levels(xs,L)**2
+            # w3 += self.n_levels(xs,L)**3
+            # w4 += self.n_levels(xs,L)**4 
+            
+            
+#         for i in range(n):
+#             xs = minn + (maxx-minn)*np.random.rand()
+#             w1 += self.n_levels(xs,L)
+            
+#         for i in range(n):
+#             xs = minn + (maxx-minn)*np.random.rand()
+#             w2 += self.n_levels(xs,L)**2
 
-        for i in range(n):
-            xs = minn + (maxx-minn)*np.random.rand()
-            w3 += self.n_levels(xs,L)**3
+#         for i in range(n):
+#             xs = minn + (maxx-minn)*np.random.rand()
+#             w3 += self.n_levels(xs,L)**3
 
-        for i in range(n):
-            xs = minn + (maxx-minn)*np.random.rand()
-            w4 += self.n_levels(xs,L)**4 
+#         for i in range(n):
+#             xs = minn + (maxx-minn)*np.random.rand()
+#             w4 += self.n_levels(xs,L)**4             
             
         w1 = w1/n
         w2 = w2/n
-        w3 = w3/n
-        w4 = w4/n
+        # w3 = w3/n
+        # w4 = w4/n
         
         nv_mean = w2-w1**2
-        nv_std = w4 - 4*w1*w3 + 6*w1**2*w2 - 3*w1**4
-        return nv_mean,nv_std
+        # nv_std = w4 - 4*w1*w3 + 6*w1**2*w2 - 3*w1**4
+
+        return nv_mean
 
     def nv_goe(self,L):
         '''
         formula for GOE Number Variance (asymptotic)
         '''
         return 2/np.pi**2*(np.log(2*np.pi*L) + np.euler_gamma + 1- np.pi**2/8)
+
+    def nv_poisson(self,L):
+        return L

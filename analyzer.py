@@ -55,27 +55,24 @@ def autocorr_one(X):
     # returns array for possibility of concatenation for batch_autocorr_one function
     return np.array([series.autocorr(lag=1)])
 
-def find_nnsd(evals,unfold_model=None):
-    nnsd = eigen_obs.NNSpacingDistribution(evals,ransac_tries=20,poly_degree=19,n_outliers=60)
-    if unfold_model:
-        nnsd._load_unfolding(unfold_model)
-    else:
-        nnsd.unfold()
-    spacings = nnsd.spacings()
-    
-    return spacings, nnsd
 
-def find_nv(evals,unfold_model=None):
-    nv_model = eigen_obs.NumberVariance(evals,ransac_tries=20,poly_degree=19,n_outliers=60)
-    if unfold_model:
-        nv_model._load_unfolding(unfold_model)
-    else:
-        nv_model.unfold()
-        
-    L = np.linspace(0.1,5,50)
-    nvs_mean,nvs_std = nv_model.calc_nv(L,n=20000,eps=0)  
+def calc_nnsd_nv(evals):
+    stats = eigen_obs.RMTStatistic(evals,
+                                   ransac_maxiter=40,
+                                   ransac_maximprov=2,
+                                   poly_degree=19,
+                                   n_outliers = int(0.8*evals.shape[0]),
+                                   fit_mode='monopoly')
+
+    stats.unfold()
+    fit_error = stats.model.best_error
+    nnsd = stats.spacings(trim_outliers=False)
     
-    return L, nvs_mean, nv_model
+    nv_L = np.linspace(0.1,5,20)
+    nv = stats.calc_nv(nv_L,n=10000,eps=0)
+    
+    return fit_error, nnsd, nv_L, nv
+
 
 def batch_cov(Xs):
     covs = None
@@ -114,24 +111,26 @@ def batch_autocorr_one(Xs):
 
 def batch_nnsd_nv(evalss):
     
+    fit_errors = None
     nnsds = None
     nv_Ls = None
     nvs = None
     
     for evals in tqdm(evalss):
         
-        nnsd,model = find_nnsd(evals)
-        nv_L, nv, _ = find_nv(evals,unfold_model=model)
+        fit_error, nnsd, nv_L, nv = calc_nnsd_nv(evals)
         
+        fit_error = np.expand_dims(fit_error,axis=0)
         nnsd = np.expand_dims(nnsd,axis=0)
         nv_L = np.expand_dims(nv_L,axis=0)
         nv = np.expand_dims(nv,axis=0)
         
+        fit_errors = fit_error if fit_errors is None else np.concatenate((fit_errors,fit_error),axis=0)
         nnsds = nnsd if nnsds is None else np.concatenate((nnsds,nnsd),axis=0)
         nv_Ls = nv_L if nv_Ls is None else np.concatenate((nv_Ls,nv_L),axis=0)
         nvs = nv if nvs is None else np.concatenate((nvs,nv),axis=0)
         
-    return nnsds, nv_Ls, nvs
+    return fit_errors, nnsds, nv_Ls, nvs
 
 if __name__ == '__main__':
     # Print initial message:
@@ -174,16 +173,16 @@ if __name__ == '__main__':
 
     # create unique directory
     postfix = determine_unique_postfix(an_dir)
-    if postfix != '':
-        if not skip_calculated:
-            an_dir += postfix
-            print("Run name changed: {}".format(an_dir))
-        else:
-            print("Found a run, skipping: {}".format(an_dir))
-            sys.exit()
+    # if postfix != '':
+    #     if not skip_calculated:
+    #         an_dir += postfix
+    #         print("Run name changed: {}".format(an_dir))
+    #     else:
+    #         print("Found a run, skipping: {}".format(an_dir))
+    #         sys.exit()
 
     # create run directory and copy the connectome
-    os.makedirs(an_dir, exist_ok=False)
+    os.makedirs(an_dir, exist_ok=True)
     
     connectome_file = os.path.join(sim_dir,'connection_matrix.dat')
     sim_file = os.path.join(sim_dir,'output.npz')
@@ -240,67 +239,83 @@ if __name__ == '__main__':
 
     covs = None
     evs = None
+    
+    file = "covs_data.npz"
     if covariance:
         print('Calculating covariance...')
+        if os.path.exists(file) and skip_calculated:
+             print('file found, skipping...')
+        else:
+            covs = batch_cov(Xs)
+            covs_data = dict()
+            covs_data['Ts'] = Ts
+            covs_data['cov'] = covs
 
-        covs = batch_cov(Xs)
-        covs_data = dict()
-        covs_data['Ts'] = Ts
-        covs_data['cov'] = covs
-
-        np.savez_compressed("covs_data.npz", **covs_data)
+            np.savez_compressed(file, **covs_data)
         
+    file = "evs_data.npz"
     if eigenvalues:
         print('Finding eigenvalues...')
-        
-        if covs is None:
-            covs = batch_cov(Xs)
-        evs_data = dict()
-        evs_data['Ts'] = Ts
-        evs = batch_eigenvalues(covs)
-        evs_data['evs'] = evs
-
-        np.savez_compressed("evs_data.npz", **evs_data)
-        
-    if clusters:
-        print(f'Finding {n_clusters} largest clusters...')
-        
-        cs = batch_clusters(Xs,connectome,n_clusters)
-        output_data['clusters'] = cs
-        clusters_data = dict()
-        clusters_data['Ts'] = Ts
-        clusters_data['clusters'] = batch_clusters(Xs,connectome,n_clusters)
-        # cs = batch_clusters(Xs,connectome,n_clusters)
-        # output_data['clusters'] = cs
-        np.savez_compressed("clusters_data.npz", **clusters_data)
-
-    if autocorrelation:
-        print("Calculating autocorrelations (at lag=1)...")
-        ac_one_data = dict()
-        ac_one_data['Ts'] = Ts
-        ac_one_data['ac_one'] = batch_autocorr_one(Xs)
-        np.savez_compressed("ac_one_data.npz", **ac_one_data)
-
-    if nnsd_nv:
-        print(f'Finding Nearest Neighbors Spacings / Number Variance...')
-        nnsd_data = dict()
-        nv_data = dict()
-        
-        if evs is None:
+        if os.path.exists(file) and skip_calculated:
+             print('file found, skipping...')
+        else:
             if covs is None:
                 covs = batch_cov(Xs)
+            evs_data = dict()
+            evs_data['Ts'] = Ts
             evs = batch_eigenvalues(covs)
-            
-        nnsds, nv_Ls, nvs = batch_nnsd_nv(evs)
-        
-        nnsd_data['Ts'] = Ts
-        nnsd_data['nnsd'] = nnsds
-        
-        nv_data['Ls'] = nv_Ls
-        nv_data['nv'] = nvs
+            evs_data['evs'] = evs
 
-        np.savez_compressed('nnsd_data.npz',**nnsd_data)
-        np.savez_compressed('nv_data.npz',**nv_data)
+            np.savez_compressed(file, **evs_data)
+    
+    file = "clusters_data.npz"
+    if clusters and not os.path.exists(file):
+        print(f'Finding {n_clusters} largest clusters...')
+        if os.path.exists(file) and skip_calculated:
+             print('file found, skipping...')
+        else:
+            clusters_data = dict()
+            clusters_data['Ts'] = Ts
+            clusters_data['clusters'] = batch_clusters(Xs,connectome,n_clusters)
+            
+            np.savez_compressed(file, **clusters_data)
+
+    file = "ac_one_data.npz"
+    if autocorrelation and not os.path.exists(file):
+        print("Calculating autocorrelations (at lag=1)...")
+        if os.path.exists(file) and skip_calculated:
+             print('file found, skipping...')
+        else:
+        
+            ac_one_data = dict()
+            ac_one_data['Ts'] = Ts
+            ac_one_data['ac_one'] = batch_autocorr_one(Xs)
+            
+            np.savez_compressed(file, **ac_one_data)
+
+    file = 'nnsd_nv_data.npz'
+    if nnsd_nv and not os.path.exists(file):
+        print(f'Finding Nearest Neighbors Spacings / Number Variance...')
+        if os.path.exists(file) and skip_calculated:
+             print('file found, skipping...')
+        else:
+            nnsd_nv_data = dict()        
+
+            if evs is None:
+                if covs is None:
+                    covs = batch_cov(Xs)
+                evs = batch_eigenvalues(covs)
+
+            fit_errors, nnsds, nv_Ls, nvs = batch_nnsd_nv(evs)
+
+            nnsd_nv_data['fit_error'] = fit_errors
+            nnsd_nv_data['nnsd_Ts'] = Ts
+            nnsd_nv_data['nnsd'] = nnsds
+
+            nnsd_nv_data['nv_Ls'] = nv_Ls
+            nnsd_nv_data['nv'] = nvs
+
+            np.savez_compressed(file,**nnsd_nv_data)
         
        
     # np.savez_compressed('output.npz',**output_data)
