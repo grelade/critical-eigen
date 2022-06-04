@@ -132,6 +132,16 @@ def batch_nnsd_nv(evalss):
         
     return fit_errors, nnsds, nv_Ls, nvs
 
+def batch_mean_corr(Xs):
+    mean_corr_tab = None
+    for X in Xs:
+        X = standardize(X)
+        mean_corr = calc_cov(X).mean()
+        mean_corr = np.array([mean_corr])
+        mean_corr_tab = mean_corr if mean_corr_tab is None else np.concatenate((mean_corr_tab, mean_corr), axis=0)
+
+    return mean_corr_tab
+
 if __name__ == '__main__':
     # Print initial message:
     initial_time = time.asctime()
@@ -167,6 +177,7 @@ if __name__ == '__main__':
     clusters = flags.getboolean("clusters", True)
     eigenvalues = flags.getboolean("eigenvalues", True)
     autocorrelation = flags.getboolean("autocorrelation", True)
+    mean_correlation = flags.getboolean("mean_correlation", True)
     nnsd_nv = flags.getboolean("nnsd_nv", True)
     skip_calculated = flags.getboolean("skip_calculated", True)
     
@@ -317,7 +328,19 @@ if __name__ == '__main__':
 
             np.savez_compressed(file,**nnsd_nv_data)
         
-       
+    file = 'mean_correlation.npz'
+    if mean_correlation:
+        print("Caluclating average correlation ...")
+        if os.path.exists(file) and skip_calculated:
+             print('file found, skipping...')
+        else:
+            mean_corr_data = dict()
+            mean_corr_data["Ts"] = Ts
+            mean_corr_data["mean_correlation"] = batch_mean_corr(Xs)
+            np.savez_compressed(file, **mean_corr_data)
+
+
+
     # np.savez_compressed('output.npz',**output_data)
     # truncate the extension of the connectome filename
     # connectome_name_wo_ext = os.path.splitext(connectome_name)[0]
