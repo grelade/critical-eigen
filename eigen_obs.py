@@ -6,7 +6,7 @@ import numpy as np
 import networkx as nx
 import scipy.io
 import scipy.optimize
-import matplotlib.pyplot as plt
+
 import pandas as pd
 import math
 from rpy2.robjects.packages import importr
@@ -21,8 +21,11 @@ class monopoly(BaseEstimator):
     '''
     Wrapper around MonoPoly R package
     '''
-    def __init__(self,degree=19,algorithm='Full'):
-        self.degree = degree # maximum stable degree
+    def __init__(self,
+                 degree=19,
+                 algorithm='Full'):
+        
+        self.degree = degree # maximum stable degree is 19
         self.algorithm = algorithm
         
     def fit(self,X,y):
@@ -33,8 +36,8 @@ class monopoly(BaseEstimator):
             _ = utils.install_packages("MonoPoly",quiet=True,verbose=False,clean=True)
         self.mp_ = rpackages.importr('MonoPoly')
 
-        X, y = check_X_y(X, y, accept_sparse=True,ensure_2d=False)        
-
+        X, y = check_X_y(X, y, accept_sparse=True,ensure_2d=False)
+            
         # numpy2ri.activate()
         # robjects.globalenv['xdata'] = X
         # robjects.globalenv['ydata'] = y
@@ -59,7 +62,19 @@ class monopoly(BaseEstimator):
         yhat = self.mp_.evalPol(xdata,self.coef_)
         return np.array(yhat,dtype=np.float64)
         
-
+    def score(self,X,y):
+        yhat = self.predict(X)
+        return -sklearn.metrics.mean_squared_error(y, yhat)
+    
+    def get_params(self, deep=True):
+        return {"degree": self.degree,
+                "algorithm": self.algorithm}
+    
+    def set_params(self, **parameters):
+        for parameter, value in parameters.items():
+            setattr(self, parameter, value)
+        return self
+    
 class RANSAC:
     '''
     RANSAC implementation from wiki; used for outlier-robust curve fit using monopoly
@@ -119,8 +134,7 @@ class RANSAC:
 
     def predict(self, X):
         return self.best_fit.predict(X)
-
-
+    
 def square_error_loss(y_true, y_pred):
     return (y_true - y_pred) ** 2
 
@@ -137,161 +151,249 @@ def goe(n):
 
     return m
 
-
 class RMTStatistic:
-    
     '''
     Class implementing both Nearest-Neighbor Spacing Distribution and Number Variance statistics
     '''
+    
+    FIT_MODE_MONOPOLY_RANSAC = 'monopoly_ransac'
+    FIT_MODE_MONOPOLY = 'monopoly'
+    FIT_MODE_GAUSSIAN = 'gaussian'
+    FIT_MODE_EXACT_GOE = 'exact_goe'
+    FIT_MODE_EXACT_POISSON = 'exact_poisson'
+    
+    MONOPOLY_RANSAC_PARAMS = {'poly_degree': 19,
+                              'poly_alg': 'Full',
+                              'maxiter': 100,
+                              'maximprov': 2,
+                              'n_outliers': 60}
+    
+    MONOPOLY_PARAMS = {'poly_degree': 19,
+                       'poly_alg': 'Full'}
+    
+    GAUSSIAN_PARAMS = {'alpha': 4,
+                       'gamma': 0.608}
+    
+    DEFAULT_PARAMS = {FIT_MODE_MONOPOLY_RANSAC: MONOPOLY_RANSAC_PARAMS,
+                      FIT_MODE_MONOPOLY: MONOPOLY_PARAMS,
+                      FIT_MODE_GAUSSIAN: GAUSSIAN_PARAMS,
+                      FIT_MODE_EXACT_GOE : dict(),
+                      FIT_MODE_EXACT_POISSON : dict()}
+    
     def __init__(self,
-                 evals,
-                 ransac_maxiter = 100,
-                 ransac_maximprov = 2,
-                 poly_degree = 19,
-                 n_outliers = 60,
-                 poly_alg = 'Full',
-                 fit_mode = 'monopoly'):
+                 evals : np.ndarray,
+                 fit_mode : str = FIT_MODE_MONOPOLY, #monopoly_ransac, monopoly, gaussian, exact_goe, exact_poisson
+                 fit_params : dict = MONOPOLY_PARAMS):
         
         self.evals = np.sort(evals)
-        self.unfolded_evals = None
+        self.fit_mode = fit_mode
+        self.fit_params = self.DEFAULT_PARAMS[fit_mode]
+        for k,v in fit_params.items():
+            self.fit_params[k] = v
         
         self.ixs = np.arange(len(self.evals))
-        
-        # monopoly parameters
-        self.poly_degree = poly_degree
-        self.poly_alg = poly_alg
-        
-        # ransac parameters
-        self.n_outliers = n_outliers
-        self.ransac_maxiter = ransac_maxiter
-        self.ransac_maximprov = ransac_maximprov
-        
-        self.fit_mode = fit_mode
+        self.unfolded_evals = None
         self.model = None
         
     def unfold(self):
-        if self.fit_mode == 'monopoly':
-            model = monopoly(degree=self.poly_degree,
-                             algorithm=self.poly_alg)
-            self.model = RANSAC(model=model,
-                                     n=len(self.evals)-self.n_outliers,
-                                     k0 = self.ransac_maximprov,
-                                     kmax=self.ransac_maxiter,
-                                     loss=square_error_loss,
-                                     metric=mean_square_error)
+        
+        if self.fit_mode == self.FIT_MODE_MONOPOLY_RANSAC:
+            
+            model0 = monopoly(degree = self.fit_params['poly_degree'],
+                             algorithm = self.fit_params['poly_alg'])
+            
+            self.model = RANSAC(model = model0,
+                                     n = len(self.evals)-self.fit_params['n_outliers'],
+                                     k0 = self.fit_params['maximprov'],
+                                     kmax = self.fit_params['maxiter'],
+                                     loss = square_error_loss,
+                                     metric = mean_square_error)
+            
+            _ = self.model.fit(self.evals,self.ixs)
+            self.unfolded_evals = self.model.predict(self.evals)
+        
+        elif self.fit_mode == self.FIT_MODE_MONOPOLY:
+            
+            self.model = monopoly(degree = self.fit_params['poly_degree'],
+                                  algorithm = self.fit_params['poly_alg'])
+            
             _ = self.model.fit(self.evals,self.ixs)
             self.unfolded_evals = self.model.predict(self.evals)
             
-        elif self.fit_mode == 'exact_goe':
-            self.unfolded_evals = self._goe_cdf(self.evals,n=len(self.evals))
+        elif self.fit_mode == self.FIT_MODE_GAUSSIAN:
+
+            alpha = self.fit_params['alpha']
+            deltas = []
+            ixs = []
+            for i in range(alpha,len(self.evals)-alpha):
+                deltas += [(self.evals[i+alpha] - self.evals[i-alpha])/(2*alpha)]
+                ixs += [i]
+
+            mu = self.evals[alpha:-alpha]
+            sigma = self.fit_params['gamma']*alpha*np.array(deltas)
+            # sigma = np.array(.02)
+            def nav(x):
+                a = (x.reshape(-1,1) - mu.reshape(1,-1))/(np.sqrt(2)*sigma.reshape(1,-1))
+                return (1/2*(1+scipy.special.erf(a))).sum(axis=-1)
+            
+            self.unfolded_evals = nav(self.evals)
+            
+        elif self.fit_mode == self.FIT_MODE_EXACT_GOE:
+            
+            self.unfolded_evals = self._goe_cdf(self.evals,n = len(self.evals))
+            
+        elif self.fit_mode == self.FIT_MODE_EXACT_POISSON:
+            
+            self.unfolded_evals = self._poisson_cdf(self.evals,n = len(self.evals))
             
         self._check_monotonicity()
     
-    def unfolded_evals_cdf(self,x):
+    def _unfolded_evals_cdf(self,
+                            x : np.ndarray):
+        
         self._unfold_warning()
-        return (self.unfolded_evals.reshape(-1,1) <= x).sum(axis=0)  
+        # return (self.unfolded_evals.reshape(-1,1) <= x).sum(axis=0)  
+        newshape = (-1,)+tuple([1]*len(x.shape))
+        uevals = self.unfolded_evals.reshape(*newshape)
+        sh2 = (len(self.unfolded_evals),)
+        sh2 += x.shape
+        uevals = np.broadcast_to(uevals,sh2)
+        return (uevals <= x).sum(axis=0)  
     
     def _unfold_warning(self):
+        
         if type(self.unfolded_evals) == type(None):
             print('run unfold() first')
             
     def _check_monotonicity(self):
+        
         if (np.diff(self.unfolded_evals)<0).any():
             print('warning, unfolding not monotonic!')
-            
-#     def _load_unfolding(self,obs):
-#         self.evals = obs.evals
-#         self.unfolded_evals = obs.unfolded_evals
-#         self.ixs = obs.ixs
-#         self.av_density = obs.av_density
         
-    def _goe_cdf(self,x,n):
+    def _goe_cdf(self,
+                 x : np.ndarray,
+                 n : float):
+        
+        out = np.zeros_like(x)
         R = 2*np.sqrt(n)
-        return n*(1/2 + x*np.sqrt(R**2-x**2)/(np.pi*R**2) + np.arcsin(x/R)/np.pi)
+        mask_m = x < -R
+        mask_p = x > R
+        mask_in = (x>= -R) & (x <= R)
+        
+        out[mask_m] = 0
+        out [mask_p] = 1
+        x0 = x[mask_in]
+        
+        out[mask_in] = n*(1/2 + x0*np.sqrt(R**2-x0**2)/(np.pi*R**2) + np.arcsin(x0/R)/np.pi)
+        return out
+    
+    def _poisson_cdf(self,
+                     x : np.ndarray,
+                     n : float):
+        
+        return n*(1-np.exp(-x))
     
     
     # Nearest Neighor Spacing
     
-    def spacings(self,trim_outliers=False):
+    def calc_nnsd(self,
+                  trim_outliers : bool = False):
+        
         self._unfold_warning()
         spacings = np.diff(self.unfolded_evals)
+        
         if trim_outliers:
             mask = spacings<5
             return spacings[mask]
         else:
             return spacings
     
-    def _prob_brody(self,s,q):
+    def _prob_brody(self,
+                    s : np.ndarray,
+                    q : float):
+        
         cq = math.gamma(1/(q+1))**(q+1)/(q+1)
         return cq*s**q*np.exp(-cq/(q+1)*s**(q+1))
     
-    def nnsd_goe(self,s):
+    def nnsd_goe(self,
+                 s: np.ndarray):
+        
         return self._prob_brody(s,1)
     
-    def nnsd_poisson(self,s):
+    def nnsd_poisson(self,
+                     s : np.ndarray):
+        
         return self._prob_brody(s,0)
     
-    def nnsd_picketfence(self,s):
+    def nnsd_picketfence(self,
+                         s : np.ndarray):
+        
         return np.ones_like(s)
     
     # Number Variance
     
-    def n_levels(self,xs,L):
+    def _n_levels_plus(self,
+                      xs : np.ndarray,
+                      L : float,
+                      nv_symm: float):
+        
         self._unfold_warning()
-        return self.unfolded_evals_cdf(xs+L/2) - self.unfolded_evals_cdf(xs-L/2)
+        return self._unfolded_evals_cdf(xs + nv_symm*L)
+
+    def _n_levels_minus(self,
+                       xs : np.ndarray,
+                       L : float,
+                       nv_symm : float):
+        
+        self._unfold_warning()
+        return self._unfolded_evals_cdf(xs - (1-nv_symm)*L)
     
-    def calc_nv(self,L,n=10000,eps=0):
+    def _n_levels(self,
+                 xs : np.ndarray,
+                 L : float):
+        
+        return self._n_levels_plus(xs,L) - self._n_levels_minus(xs,L)
+    
+    def calc_nv(self,
+                L : np.ndarray,
+                n : int = 3000,
+                eps : float = 0.0,
+                alpha : float = 0.5,
+                nv_symm : float = 0.5):
         
         self._unfold_warning()
-        # minn = (1+eps)*(self.unfolded_evals[0] + L/2)
-        # maxx = (1-eps)*(self.unfolded_evals[-1] - L/2)
-        minn = (1+eps)*(self.ixs[0])
-        maxx = (1-eps)*(self.ixs[-1])        
+        minn = (1+eps)*(self.unfolded_evals[0] + (1-nv_symm)*L)
+        maxx = (1-eps)*(self.unfolded_evals[-1] - nv_symm*L)
+
+        xs = minn.reshape(1,-1) + (maxx-minn).reshape(1,-1)*np.random.rand(n,len(L))
+
+        L0 = L.reshape(1,-1)
+        np_sq = self._n_levels_plus(xs,L0,nv_symm)**2
+        nm_sq = self._n_levels_minus(xs,L0,nv_symm)**2
+        np_ = self._n_levels_plus(xs,L0,nv_symm)
+        nm_ = self._n_levels_minus(xs,L0,nv_symm)
+        npnm = self._n_levels_plus(xs,L0,nv_symm)*self._n_levels_minus(xs,L0,nv_symm)
+
+        np_sq = np_sq.mean(axis=0)
+        nm_sq = nm_sq.mean(axis=0)
+        np_ = np_.mean(axis=0)
+        nm_ = nm_.mean(axis=0)
+        npnm = npnm.mean(axis=0)    
         
-        w1 = 0
-        w2 = 0
-        # w3 = 0
-        # w4 = 0
+        return np_sq-np_**2 + nm_sq-nm_**2 - 2*(npnm-np_*nm_)
 
-        for i in range(n):
-            xs = minn + (maxx-minn)*np.random.rand()
-            w1 += self.n_levels(xs,L)
-            w2 += self.n_levels(xs,L)**2
-            # w3 += self.n_levels(xs,L)**3
-            # w4 += self.n_levels(xs,L)**4 
-            
-            
-#         for i in range(n):
-#             xs = minn + (maxx-minn)*np.random.rand()
-#             w1 += self.n_levels(xs,L)
-            
-#         for i in range(n):
-#             xs = minn + (maxx-minn)*np.random.rand()
-#             w2 += self.n_levels(xs,L)**2
-
-#         for i in range(n):
-#             xs = minn + (maxx-minn)*np.random.rand()
-#             w3 += self.n_levels(xs,L)**3
-
-#         for i in range(n):
-#             xs = minn + (maxx-minn)*np.random.rand()
-#             w4 += self.n_levels(xs,L)**4             
-            
-        w1 = w1/n
-        w2 = w2/n
-        # w3 = w3/n
-        # w4 = w4/n
-        
-        nv_mean = w2-w1**2
-        # nv_std = w4 - 4*w1*w3 + 6*w1**2*w2 - 3*w1**4
-
-        return nv_mean
-
-    def nv_goe(self,L):
+    def nv_goe(self,
+               L : np.ndarray):
         '''
         formula for GOE Number Variance (asymptotic)
         '''
         return 2/np.pi**2*(np.log(2*np.pi*L) + np.euler_gamma + 1- np.pi**2/8)
 
-    def nv_poisson(self,L):
+    def nv_poisson(self,
+                   L : np.ndarray):
+        '''
+        formula for Poisson Number Variance
+        '''        
         return L
+    
+    

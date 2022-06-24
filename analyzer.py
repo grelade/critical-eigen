@@ -22,6 +22,8 @@ def standardize(X,axis=-1):
 
     return (X - means)/stds
 
+
+# basic calc functions
 def calc_cov(X):
     N,T = X.shape
     return 1/T * X @ X.T
@@ -56,24 +58,33 @@ def autocorr_one(X):
     return np.array([series.autocorr(lag=1)])
 
 
-def calc_nnsd_nv(evals):
+def calc_nnsd(evals):
     stats = eigen_obs.RMTStatistic(evals,
-                                   ransac_maxiter=40,
-                                   ransac_maximprov=2,
-                                   poly_degree=19,
-                                   n_outliers = int(0.8*evals.shape[0]),
                                    fit_mode='monopoly')
 
     stats.unfold()
-    fit_error = stats.model.best_error
-    nnsd = stats.spacings(trim_outliers=False)
+    # fit_error = stats.model.best_error
+    nnsd = stats.calc_nnsd(trim_outliers=False)
     
-    nv_L = np.linspace(0.1,5,20)
+    return nnsd
+
+def calc_nv(evals):
+
+    stats = eigen_obs.RMTStatistic(evals,
+                                   # ransac_maxiter=40,
+                                   # ransac_maximprov=2,
+                                   # poly_degree=19,
+                                   # n_outliers = int(0.8*evals.shape[0]),
+                                   fit_mode='monopoly')
+
+    stats.unfold()
+
+    nv_L = np.linspace(0.1,10,40)
     nv = stats.calc_nv(nv_L,n=10000,eps=0)
+
+    return nv_L, nv
     
-    return fit_error, nnsd, nv_L, nv
-
-
+# batch calc functions
 def batch_cov(Xs):
     covs = None
     for X in tqdm(Xs):
@@ -109,7 +120,7 @@ def batch_autocorr_one(Xs):
 
     return ac_one_tab
 
-def batch_nnsd_nv(evalss):
+def batch_nnsd(evalss):
     
     fit_errors = None
     nnsds = None
@@ -118,19 +129,36 @@ def batch_nnsd_nv(evalss):
     
     for evals in tqdm(evalss):
         
-        fit_error, nnsd, nv_L, nv = calc_nnsd_nv(evals)
+        nnsd = calc_nnsd(evals)
         
-        fit_error = np.expand_dims(fit_error,axis=0)
+        # fit_error = np.expand_dims(fit_error,axis=0)
         nnsd = np.expand_dims(nnsd,axis=0)
+        # nv_L = np.expand_dims(nv_L,axis=0)
+        # nv = np.expand_dims(nv,axis=0)
+        
+        # fit_errors = fit_error if fit_errors is None else np.concatenate((fit_errors,fit_error),axis=0)
+        nnsds = nnsd if nnsds is None else np.concatenate((nnsds,nnsd),axis=0)
+        # nv_Ls = nv_L if nv_Ls is None else np.concatenate((nv_Ls,nv_L),axis=0)
+        # nvs = nv if nvs is None else np.concatenate((nvs,nv),axis=0)
+        
+    return nnsds
+
+def batch_nv(evalss):
+    
+    nv_Ls = None
+    nvs = None
+    
+    for evals in tqdm(evalss):
+        
+        nv_L, nv = calc_nv(evals)
+        
         nv_L = np.expand_dims(nv_L,axis=0)
         nv = np.expand_dims(nv,axis=0)
         
-        fit_errors = fit_error if fit_errors is None else np.concatenate((fit_errors,fit_error),axis=0)
-        nnsds = nnsd if nnsds is None else np.concatenate((nnsds,nnsd),axis=0)
         nv_Ls = nv_L if nv_Ls is None else np.concatenate((nv_Ls,nv_L),axis=0)
         nvs = nv if nvs is None else np.concatenate((nvs,nv),axis=0)
         
-    return fit_errors, nnsds, nv_Ls, nvs
+    return nv_Ls, nvs
 
 def batch_mean_corr(Xs):
     mean_corr_tab = None
@@ -178,7 +206,8 @@ if __name__ == '__main__':
     eigenvalues = flags.getboolean("eigenvalues", True)
     autocorrelation = flags.getboolean("autocorrelation", True)
     mean_correlation = flags.getboolean("mean_correlation", True)
-    nnsd_nv = flags.getboolean("nnsd_nv", True)
+    nnsd = flags.getboolean("nnsd", True)
+    nv = flags.getboolean("nv", True)
     skip_calculated = flags.getboolean("skip_calculated", True)
     
 
@@ -304,30 +333,47 @@ if __name__ == '__main__':
             
             np.savez_compressed(file, **ac_one_data)
 
-    file = 'nnsd_nv_data.npz'
-    if nnsd_nv and not os.path.exists(file):
-        print(f'Finding Nearest Neighbors Spacings / Number Variance...')
+    file = 'nnsd_data.npz'
+    if nnsd and not os.path.exists(file):
+        print(f'Finding Nearest Neighbors Spacings...')
         if os.path.exists(file) and skip_calculated:
              print('file found, skipping...')
         else:
-            nnsd_nv_data = dict()        
+            nnsd_data = dict()        
 
             if evs is None:
                 if covs is None:
                     covs = batch_cov(Xs)
                 evs = batch_eigenvalues(covs)
 
-            fit_errors, nnsds, nv_Ls, nvs = batch_nnsd_nv(evs)
+            nnsds = batch_nnsd(evs)
 
-            nnsd_nv_data['fit_error'] = fit_errors
-            nnsd_nv_data['nnsd_Ts'] = Ts
-            nnsd_nv_data['nnsd'] = nnsds
+            nnsd_data['Ts'] = Ts
+            nnsd_data['nnsd'] = nnsds
 
-            nnsd_nv_data['nv_Ls'] = nv_Ls
-            nnsd_nv_data['nv'] = nvs
+            np.savez_compressed(file,**nnsd_data)
+    
+    file = 'nv_data.npz'
+    if nv and not os.path.exists(file):
+        print(f'Finding Number Variance...')
+        if os.path.exists(file) and skip_calculated:
+             print('file found, skipping...')
+        else:
+            nv_data = dict()        
 
-            np.savez_compressed(file,**nnsd_nv_data)
-        
+            if evs is None:
+                if covs is None:
+                    covs = batch_cov(Xs)
+                evs = batch_eigenvalues(covs)
+
+            nv_Ls, nvs = batch_nv(evs)
+
+            nv_data['Ts'] = Ts
+            nv_data['nv_Ls'] = nv_Ls
+            nv_data['nv'] = nvs
+
+            np.savez_compressed(file,**nv_data)
+            
     file = 'mean_correlation.npz'
     if mean_correlation:
         print("Caluclating average correlation ...")

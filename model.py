@@ -2,6 +2,7 @@
 import numpy as np
 import numba
 from typing import Optional
+import networkx as nx
 
 
 class SERModel:
@@ -182,6 +183,65 @@ def _run(
                                                spont_activated[susce, t])
 
     return act_mat[:, n_transient:]
+
+
+def calc_Tc(J) -> float:
+    return 2*J/np.log(np.sqrt(2)+1)
+
+class IsingModel:
+    
+    def __init__(self,
+                 n_steps: int,
+                 T: float,
+                 J: float,
+                 network: nx.Graph,
+                 n_transient: int = 500) -> None:
+        self.n_steps = n_steps
+        self.T = T
+        self.J = J
+        self.n_transient = n_transient
+        self.network = network
+    
+    def E(self,s: dict) -> float:
+        E0 = 0
+        for n in self.network.nodes:
+            nn = np.array([s[n2] for _,n2 in self.network.edges(nbunch=n)]).sum()
+            E0 -= self.J/2 * s[n] * nn
+        return E0
+
+    def init_state(self) -> dict:
+        return {n: 2*np.random.randint(2)-1 for n in self.network.nodes}
+
+    def sweep(self,s: dict) -> None:
+        for n in self.network.nodes:
+            nn = np.array([s[n2] for _,n2 in self.network.edges(nbunch=n)]).sum()
+
+            new_s = -s[n]
+            dE =- self.J/2 * (new_s-s[n])*nn
+
+            if dE <= 0.:
+                s[n] = new_s
+            elif np.exp(-dE/self.T) > np.random.rand():
+                s[n] = new_s        
+
+    def simulate(self) -> np.ndarray:
+        def s_arr(s: dict): 
+            return np.array(list(s.values()))
+        # print(f'running sim grid={grid}; J={J}; T={T}')
+
+        s = self.init_state()
+        X = s_arr(s).reshape(-1,1)
+
+        # print('thermalization...')
+        for i in range(self.n_transient):
+            self.sweep(s)    
+
+        # print('simulation')
+        # for i in tqdm(range(self.n_steps-1)):
+        for i in range(self.n_steps-1):
+            self.sweep(s)
+            X = np.hstack((X,s_arr(s).reshape(-1,1)))
+        return X
 
 # import numpy.linalg as LA
 # from scipy.io import loadmat
