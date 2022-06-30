@@ -25,7 +25,8 @@ def simulation(n_steps: int,
                n_therm: int,
                T: float,
                J: float,
-               connectome: nx.Graph,
+               # connectome: nx.Graph,
+               connectome: np.ndarray,
                seed: int) -> np.ndarray:
     
     # set random seed:
@@ -33,24 +34,13 @@ def simulation(n_steps: int,
 
     model = IsingModel(n_steps = n_steps,
                        n_transient = n_therm,
-                       T = calc_Tc(J),
+                       T = T,
                        J = J,
                        network = connectome)
 
     activation_matrix = model.simulate()
-    activation_matrix[activation_matrix == -1] = 0
-    # set up model parameters
-    # model = SERModel(n_steps=n_steps,
-    #                  n_transient=n_therm,
-    #                  prob_spont_act=ri,
-    #                  prob_recovery=rf,
-    #                  prop_e=prop_active,
-    #                  threshold=T
-    #                  )
-
-    # run simulation using given connectome
-    # activation_matrix = model.simulate(adj_mat=conn_matrix)
-    # activation_matrix[activation_matrix == -1] = 2 # return refractory nodes to 2
+    # activation_matrix[activation_matrix == -1] = 0
+    
     return activation_matrix
 
 
@@ -84,7 +74,7 @@ if __name__ == '__main__':
     
     seed = parameters.getint("seed", 124)
     # frac_init_active_neurons = parameters.getfloat("frac_init_active_neurons", 0.01)
-    connectome_file = parameters.get("connectome_file", 'sample.dat')
+    connectome_file = parameters.get("connectome_file", 'sample.npz')
     run_name = parameters.get("run_name", 'test_run')
 
     flags = parser['Flags']
@@ -111,7 +101,8 @@ if __name__ == '__main__':
 
     # load connectome:
     try:
-        connectome = nx.read_gpickle(connectome_file)
+        # connectome = nx.read_gpickle(connectome_file)
+        connectome = np.load(connectome_file)['adj']
     except:
         sys.exit("Connectome file {} not found".format(connectome_file))
 

@@ -1,7 +1,7 @@
 # import warnings
 import numpy as np
 import numba
-from typing import Optional
+from typing import Optional,Union
 import networkx as nx
 
 
@@ -194,19 +194,25 @@ class IsingModel:
                  n_steps: int,
                  T: float,
                  J: float,
-                 network: nx.Graph,
+                 network: Union[nx.Graph,np.ndarray],
                  n_transient: int = 500) -> None:
         self.n_steps = n_steps
         self.T = T
         self.J = J
         self.n_transient = n_transient
-        self.network = network
-    
+        
+        if type(network) == np.ndarray:
+            self.network = nx.from_numpy_array(network)
+        elif type(network) == nx.Graph:
+            self.network = network
+        else:
+            raise Error('unknown network type')
+            
     def E(self,s: dict) -> float:
         E0 = 0
         for n in self.network.nodes:
             nn = np.array([s[n2] for _,n2 in self.network.edges(nbunch=n)]).sum()
-            E0 -= self.J/2 * s[n] * nn
+            E0 -= self.J * s[n] * nn
         return E0
 
     def init_state(self) -> dict:
@@ -217,7 +223,7 @@ class IsingModel:
             nn = np.array([s[n2] for _,n2 in self.network.edges(nbunch=n)]).sum()
 
             new_s = -s[n]
-            dE =- self.J/2 * (new_s-s[n])*nn
+            dE =- self.J * (new_s-s[n])*nn
 
             if dE <= 0.:
                 s[n] = new_s

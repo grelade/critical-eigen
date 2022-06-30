@@ -335,7 +335,7 @@ class RMTStatistic:
     def _n_levels_plus(self,
                       xs : np.ndarray,
                       L : float,
-                      nv_symm: float):
+                      nv_symm : float = 0.5):
         
         self._unfold_warning()
         return self._unfolded_evals_cdf(xs + nv_symm*L)
@@ -343,7 +343,7 @@ class RMTStatistic:
     def _n_levels_minus(self,
                        xs : np.ndarray,
                        L : float,
-                       nv_symm : float):
+                       nv_symm : float = 0.5):
         
         self._unfold_warning()
         return self._unfolded_evals_cdf(xs - (1-nv_symm)*L)
@@ -380,7 +380,7 @@ class RMTStatistic:
         nm_ = nm_.mean(axis=0)
         npnm = npnm.mean(axis=0)    
         
-        return np_sq-np_**2 + nm_sq-nm_**2 - 2*(npnm-np_*nm_)
+        return np_sq - np_**2 + nm_sq - nm_**2 - 2*(npnm - np_*nm_)
 
     def nv_goe(self,
                L : np.ndarray):
