@@ -216,7 +216,8 @@ class IsingModel:
         return E0
 
     def init_state(self) -> dict:
-        return {n: 2*np.random.randint(2)-1 for n in self.network.nodes}
+        # return {n: 2*np.random.randint(2)-1 for n in self.network.nodes}
+        return {n: -1 for n in self.network.nodes}
 
     def sweep(self,s: dict) -> None:
         for n in self.network.nodes:
