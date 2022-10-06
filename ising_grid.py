@@ -45,7 +45,7 @@ class Grid:
         ebunch = [ebunch[i] for i in ebunch_ixs]
         ixmax = int(remove_frac*len(ebunch))
         g.remove_edges_from(ebunch[:ixmax])
-        
+        print(f'removing {len(ebunch[:ixmax])} out of {len(ebunch)} edges on the boundary')
         # label subsystems
 
         patch_nodes = product(list(range(x0,x1+1)),
@@ -76,8 +76,9 @@ class Grid:
         ebunch_ixs = list(rng.permutation(range(len(ebunch))))
         ebunch = [ebunch[i] for i in ebunch_ixs]
         ixmax = int(remove_frac*len(ebunch))
+              
         g.remove_edges_from(ebunch[:ixmax])
-
+        print(f'removing {len(ebunch[:ixmax])} out of {len(ebunch)} edges on the boundary')
         # label subsystems
         nx.set_node_attributes(g,
                                values={n: 1 for n in patch_nodes},
@@ -95,3 +96,76 @@ class Grid:
         return {'adj': adj,
                 'subsystems': subsystems,
                 'nodes': nodes}
+    
+    
+class Network:
+    
+    def __init__(self):
+        pass
+    
+    @staticmethod
+    def watts_strogatz(nodes: int,
+                       num_neighbors: int,
+                       prob: float):
+
+        g = nx.connected_watts_strogatz_graph(n=nodes,k=num_neighbors,p=prob)
+        nx.set_node_attributes(g,
+                               values=0,
+                               name='subsystem')      
+        return g
+    
+    @staticmethod
+    def erdos_renyi(nodes: int,
+                    prob: float):
+
+        g = nx.erdos_renyi_graph(n=nodes,p=prob)
+        nx.set_node_attributes(g,
+                               values=0,
+                               name='subsystem')      
+        return g
+    
+    @staticmethod
+    def barabasi_albert(nodes: int,
+                        edge_num: int):
+
+        g = nx.barabasi_albert_graph(n=nodes,m=edge_num)
+        nx.set_node_attributes(g,
+                               values=0,
+                               name='subsystem')      
+        return g    
+    
+    @staticmethod
+    def patch(graph: nx.Graph, n_subnodes: int, remove_frac: float):
+        
+        g = graph.copy()
+        rng = np.random.default_rng(42)
+        subnodesA = rng.permutation(g.nodes)[:n_subnodes]
+        
+        subnodesB = g.nodes-subnodesA
+
+        ebunch = [eb for eb in nx.edge_boundary(g,nbunch1=subnodesA,nbunch2=subnodesB)]
+        ebunch = rng.permutation(ebunch)
+        ixmax = int(remove_frac*len(ebunch))
+
+        subebunch = ebunch[:ixmax]
+        g.remove_edges_from(subebunch)
+        
+        print(f'removing {len(ebunch[:ixmax])} out of {len(ebunch)} edges on the boundary')
+        # label subsystems
+        nx.set_node_attributes(g,
+                               values={n: 1 for n in subnodesA},
+                               name='subsystem')
+        
+        return g
+
+    @staticmethod
+    def nx_to_np(graph: nx.Graph):
+        
+        adj = nx.to_numpy_matrix(graph)
+        subsystems = np.array([attr['subsystem'] for n,attr in graph.nodes.items()])
+        nodes = np.array([n for n,attr in graph.nodes.items()])
+        
+        return {'adj': adj,
+                'subsystems': subsystems,
+                'nodes': nodes}
+    
