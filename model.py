@@ -231,8 +231,8 @@ class IsingModel:
             return None
         
     def sweep(self,s: dict) -> None:
-        if self.sweep_timesteps:
-            f = lambda x: random.sample(x,self.sweep_timesteps)
+        if self.n_sweep:
+            f = lambda x: random.sample(x,self.n_sweep)
         else:
             f = lambda x: x
             
