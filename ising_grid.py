@@ -1,6 +1,7 @@
 import numpy as np
 import networkx as nx
 from itertools import product
+import pickle
 
 class Grid:
     
@@ -87,17 +88,33 @@ class Grid:
         return g
 
     @staticmethod
-    def nx_to_np(graph: nx.Graph):
+    def nx_to_np(graph: nx.Graph, store: str = 'graph'):
         
-        adj = nx.to_numpy_matrix(graph)
+        if store == 'adj':
+            adj = nx.to_numpy_matrix(graph)
         subsystems = np.array([attr['subsystem'] for n,attr in graph.nodes.items()])
         nodes = np.array([list(n) for n,attr in graph.nodes.items()])
         
-        return {'adj': adj,
-                'subsystems': subsystems,
-                'nodes': nodes}
-    
-    
+        if store == 'adj':
+            return {'adj': adj,
+                    'subsystems': subsystems,
+                    'nodes': nodes}
+        
+        elif store == 'graph':
+            return {'graph': graph,
+                    'subsystems': subsystems,
+                    'nodes': nodes}
+
+    @staticmethod
+    def save_graph(graph: nx.Graph, file: str, store: str = 'graph'):
+        out = Grid.nx_to_np(graph, store = store)
+        if store == 'adj':
+            np.savez_compressed(file,**out)
+        elif store == 'graph':
+            with open(file,'wb') as fp:
+                pickle.dump(out,fp)
+
+        
 class Network:
     
     def __init__(self):
@@ -159,13 +176,25 @@ class Network:
         return g
 
     @staticmethod
-    def nx_to_np(graph: nx.Graph):
+    def nx_to_np(graph: nx.Graph, store: str = 'graph'):
         
-        adj = nx.to_numpy_matrix(graph)
+        if store == 'adj':
+            adj = nx.to_numpy_matrix(graph)
         subsystems = np.array([attr['subsystem'] for n,attr in graph.nodes.items()])
-        nodes = np.array([n for n,attr in graph.nodes.items()])
+        nodes = np.array([list(n) for n,attr in graph.nodes.items()])
         
-        return {'adj': adj,
-                'subsystems': subsystems,
-                'nodes': nodes}
+        if store == 'adj':
+            return {'adj': adj,
+                    'subsystems': subsystems,
+                    'nodes': nodes}
+        
+        elif store == 'graph':
+            return {'graph': graph,
+                    'subsystems': subsystems,
+                    'nodes': nodes}
+
+    @staticmethod
+    def save_graph(graph: nx.Graph, file: str, store: str = 'graph'):
+        out = Grid.nx_to_np(graph, store = store)
+        np.savez_compressed(file,**out)
     

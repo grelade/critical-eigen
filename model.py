@@ -3,7 +3,7 @@ import numpy as np
 import numba
 from typing import Optional,Union
 import networkx as nx
-
+import random
 
 class SERModel:
     """
@@ -195,11 +195,15 @@ class IsingModel:
                  T: float,
                  J: float,
                  network: Union[nx.Graph,np.ndarray],
-                 n_transient: int = 500) -> None:
+                 init_type: str = 'uniform',
+                 n_transient: int = 500,
+                 n_sweep: int = None) -> None:
         self.n_steps = n_steps
         self.T = T
         self.J = J
         self.n_transient = n_transient
+        self.n_sweep = n_sweep
+        self.init_type = init_type
         
         if type(network) == np.ndarray:
             self.network = nx.from_numpy_array(network)
@@ -216,11 +220,23 @@ class IsingModel:
         return E0
 
     def init_state(self) -> dict:
-        # return {n: 2*np.random.randint(2)-1 for n in self.network.nodes}
-        return {n: -1 for n in self.network.nodes}
-
+        if self.init_type == 'uniform':
+            return {n: -1 for n in self.network.nodes}
+        elif self.init_type == 'random_sym':
+            return {n: 2*np.random.randint(2)-1 for n in self.network.nodes}
+        elif self.init_type == 'random_asym':
+            return {n: np.random.choice([-1,1],p=[0.75,0.25]) for n in self.network.nodes}
+        else:
+            print(f'unknown init_type={self.init_type}')
+            return None
+        
     def sweep(self,s: dict) -> None:
-        for n in self.network.nodes:
+        if self.sweep_timesteps:
+            f = lambda x: random.sample(x,self.sweep_timesteps)
+        else:
+            f = lambda x: x
+            
+        for n in f(self.network.nodes):
             nn = np.array([s[n2] for _,n2 in self.network.edges(nbunch=n)]).sum()
 
             new_s = -s[n]

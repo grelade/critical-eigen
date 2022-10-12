@@ -12,6 +12,7 @@ import numpy as np
 # import numpy.linalg as LA
 # from scipy.io import loadmat
 import networkx as nx
+from typing import Union
 
 # find the model.py package:
 sys.path.append(".")
@@ -23,10 +24,11 @@ from func import determine_unique_postfix
 
 def simulation(n_steps: int,
                n_therm: int,
+               n_sweep: int,
                T: float,
                J: float,
-               # connectome: nx.Graph,
-               connectome: np.ndarray,
+               connectome: Union[nx.Graph,np.ndarray],
+               init_type: str,
                seed: int) -> np.ndarray:
     
     # set random seed:
@@ -34,9 +36,11 @@ def simulation(n_steps: int,
 
     model = IsingModel(n_steps = n_steps,
                        n_transient = n_therm,
+                       n_sweep = n_sweep,
                        T = T,
                        J = J,
-                       network = connectome)
+                       network = connectome,
+                       init_type = init_type)
 
     activation_matrix = model.simulate()
     # activation_matrix[activation_matrix == -1] = 0
@@ -62,9 +66,9 @@ if __name__ == '__main__':
     parameters = parser["Parameters"]
     t_max = parameters.getint("t_max", 2000)
     t_th = parameters.getint("t_th", 200)
+    t_sweep = parameters.getint("t_sweep", None)
     J = parameters.getfloat("J", 1.0)
-    # rf = parameters.getfloat("rf", 0.2)
-    #T = parameters.getfloat("T", 0.05)
+    init_type = parameters.get("init_type", 'uniform')
     
     Tc = calc_Tc(J)
     
@@ -73,13 +77,10 @@ if __name__ == '__main__':
     T_n = parameters.getint("T_n", 1)
     
     seed = parameters.getint("seed", 124)
-    # frac_init_active_neurons = parameters.getfloat("frac_init_active_neurons", 0.01)
     connectome_file = parameters.get("connectome_file", 'sample.npz')
     run_name = parameters.get("run_name", 'test_run')
 
     flags = parser['Flags']
-    # r_rocha = flags.getboolean("r_rocha", False)
-    # connectome_normalization = flags.getboolean("connectome_normalization", False)
     skip_calculated = flags.getboolean("skip_calculated", True)
     
     # create unique directory
@@ -94,47 +95,35 @@ if __name__ == '__main__':
     # create run directory
     os.makedirs(run_name, exist_ok=False)
     connectome_name = os.path.split(connectome_file)[-1]    
-    
+
     # write the config file
     with open(os.path.join(run_name, 'sim_config.ini'), 'w') as config:
-        parser.write(config)
-
+        parser.write(config)    
+        
+    start_time = timeit.default_timer()
     # load connectome:
     try:
-        # connectome = nx.read_gpickle(connectome_file)
-        connectome = np.load(connectome_file)['adj']
+        cf = np.load(connectome_file,allow_pickle=True)
+        if 'adj' in cf.keys():
+            print(f'from connectome file {connectome_file} reading: adjacency matrix (SLOW)')
+            connectome = cf['adj']
+        elif 'graph' in cf.keys():
+            connectome = cf['graph']
+            print(f'connectome file {connectome_file} reading: nx graph file')
+        else:
+            print('no adj/graph in connectome file!')
+            # connectome = nx.read_gpickle(connectome_file)
+            
     except:
         sys.exit("Connectome file {} not found".format(connectome_file))
+        
+    final_time = timeit.default_timer()
+    print(f'Loading connectome took {final_time-start_time:.2f} seconds')
 
-    # apply flags:
-    # if connectome_normalization:
-    #     for row in connectome:
-    #         s = np.sum(row)
-    #         if s>0:
-    #             row /= s
-
-    # define size of the network
-    # Nsize = len(connectome)
-
-    # if r_rocha:
-    #     ri = 2.0 / Nsize
-    #     rf = ri ** 0.2
-
-    # print the parameters:
-    # print("Parameters read from the file:")
-    # print("Number of time steps: {}".format(t_max))
-    # print("Number of discarded time steps (thermalization): {}".format(t_th))
-    # print("Number of neurons in the model: {}".format(Nsize))
-    # print("Fraction of initially active neurons: {}".format(frac_init_active_neurons))
-    # print("Spontaneous activation probability: {}".format(ri))
-    # print("Relaxation probability: {}".format(rf))
-    # # print("Value of the threshold (temperature): {}".format(T))
-    # print(f"Thresholds (temperatures): np.linspace({T_init},{T_final},{T_n})")
-    # print("Connectome file: {}".format(connectome_name))
-    # print("Normalization of the connectome: {}".format(connectome_normalization))
-    # print("Rocha's ri and rf: {}".format(r_rocha))
-    # print(f"Skip finished calculation: {skip_calculated}")
-    # only now enter run's directory
+    # save the connectome
+    connectome_name = 'connection_matrix.npz'
+    copyfile(connectome_file, os.path.join(run_name, connectome_name))        
+    
     os.chdir(run_name)
     
     # main simulation goes here:
@@ -142,13 +131,16 @@ if __name__ == '__main__':
     
     am_tab = None
     Ts = Tc*np.linspace(dT_init,dT_final,T_n)
+    
     for T in Ts:
         print(f"T = {T:.2f}")
         activation_matrix = simulation(n_steps=t_max,
                                        n_therm=t_th,
+                                       n_sweep=t_sweep,
                                        T=T,
                                        J=J,
                                        connectome=connectome,
+                                       init_type=init_type,
                                        seed=seed)
         activation_matrix = np.expand_dims(activation_matrix,axis=0)
             
@@ -165,11 +157,6 @@ if __name__ == '__main__':
     output_filename = 'output.npz'
     np.savez_compressed(output_filename, activation_matrix = am_tab, Ts = Ts)
     
-    # save the connectome
-    # copyfile(connectome_file, os.path.join(run_name, connectome_name))
-    connectome_name = 'connection_matrix.dat'
-    nx.write_gpickle(connectome,connectome_name)
-    # np.savetxt(connectome_name,connectome)
     
     end_time = time.asctime()
     final_time = timeit.default_timer()
