@@ -122,10 +122,10 @@ class Network:
     
     @staticmethod
     def watts_strogatz(nodes: int,
-                       num_neighbors: int,
+                       mean_degree: int,
                        prob: float):
 
-        g = nx.connected_watts_strogatz_graph(n=nodes,k=num_neighbors,p=prob)
+        g = nx.connected_watts_strogatz_graph(n=nodes,k=mean_degree,p=prob)
         nx.set_node_attributes(g,
                                values=0,
                                name='subsystem')      
