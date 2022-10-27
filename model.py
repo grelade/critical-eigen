@@ -1,9 +1,10 @@
 # import warnings
 import numpy as np
 import numba
-from typing import Optional,Union
+from typing import Optional, Union
 import networkx as nx
 import random
+
 
 class SERModel:
     """
@@ -188,13 +189,14 @@ def _run(
 def calc_Tc(J) -> float:
     return 2*J/np.log(np.sqrt(2)+1)
 
+
 class IsingModel:
     
     def __init__(self,
                  n_steps: int,
                  T: float,
                  J: float,
-                 network: Union[nx.Graph,np.ndarray],
+                 network: Union[nx.Graph, np.ndarray],
                  init_type: str = 'uniform',
                  n_transient: int = 500,
                  n_sweep: int = None) -> None:

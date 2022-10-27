@@ -12,7 +12,7 @@ def cluster_sizes(array, lattice_size, mask):
     
     region_table = skimage.measure.regionprops_table(img_label, properties=('area',))
 #     clusters = sorted(region_table['area'], reverse=True)
-    clusters = np.sort(region_table['area'])[::-1] # roughly 10 times faster than line above
+    clusters = np.sort(region_table['area'])[::-1]  # roughly 10 times faster than line above
     
     return clusters
 
@@ -42,7 +42,7 @@ def find_clusters_ising(X, lattice_size, mask=None, n_clusters=10):
     
 
 def batch_clusters_ising(Xs, mask=None, n_clusters=10):
-    clusters=None
+    clusters = None
     
     size = Xs.shape[1]
     lattice_size = int(np.sqrt(size))
