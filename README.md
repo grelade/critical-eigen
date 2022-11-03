@@ -1,4 +1,4 @@
-# critical-eigen
+# critical-stroke
 
 ## Requirements
 * numpy
