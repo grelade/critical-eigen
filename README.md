@@ -3,6 +3,7 @@
 ## Requirements
 * numpy
 * scipy
+* numba
 * networkx
 * scikit-image
 * jupyter (only for jupyter notebook tutorials)
@@ -11,6 +12,7 @@
 Tested using:
 * numpy (1.21.0)
 * scipy (1.8.0)
+* numba (0.55.1)
 * scikit-image (0.19.3)
 * networkx (2.8)
 
@@ -33,7 +35,7 @@ The simulation scripts saves all data in  `output.npz` file
 in a desired directory.
 
 ## Preparation of adjacency (connection) matrices and connectomes
-The standard Hagmann et al.'s connectome is located in `hagmann_connectome.npz` 
+The standard [Hagmann et al.'s connectome](https://doi.org/10.1371/journal.pbio.0060159.g001) is located in `hagmann_connectome.npz` 
 file. It consists of a connection matrix and labels assigning regions-of-interest 
 (ROIs) to appropriate resting-state-networks (RNSs).
 
@@ -48,5 +50,3 @@ Clustering routines for both models can be found in `clusters_htc.py` and
 approach (`networkx`), while in the Ising model, clusters are computed using image-analysis 
 based methods (`skicit-image`).
 
-### analyzer:
-> ./analyzer.py cfgs/an_config.ini
