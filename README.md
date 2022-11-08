@@ -2,7 +2,10 @@
 
 Repository accompanying the article ["Do strokes affect the brain’s critical state? A
 theoretical perspective."](http://link_to_paper).
-Contains simulation code for Ising and HTC dynamics defined on arbitrary networks and code for performing cluster analysis.
+Contents:
+- code with simulation of Ising and HTC dynamics defined on arbitrary networks, 
+- various network generators, and
+- code for performing cluster analysis
 
 ## Requirements
 * numpy
