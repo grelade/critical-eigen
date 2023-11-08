@@ -1,7 +1,6 @@
 # critical-stroke
 
-Repository accompanying the article ["Do strokes affect the brain’s critical state? A
-theoretical perspective."](http://link_to_paper).
+Repository accompanying the article ["Investigating structural and functional aspects of the brain’s criticality in stroke."](https://www.nature.com/articles/s41598-023-39467-x).
 Contents:
 - code with simulation of Ising and HTC dynamics defined on arbitrary networks, 
 - various network generators, and
